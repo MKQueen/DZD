@@ -51,6 +51,7 @@
   const videoEl = document.getElementById('video');
 
   const player = { x: canvas.width/2, y: canvas.height-60, size:30 };
+  let targetX = player.x;
   let bullets = [];
   let startTime = Date.now();
 
@@ -65,6 +66,7 @@
 
   function resetGame(){
     player.x = canvas.width/2;
+    targetX = player.x;
     bullets = [];
     startTime = Date.now();
     msgDiv.style.display = 'none';
@@ -94,7 +96,6 @@
 
   function drawBullets(){
     bullets.forEach(b=>{
-      // 绘制拖尾
       for(let i=0; i<b.trail.length; i++){
         const alpha = (i+1)/b.trail.length * 0.5;
         ctx.fillStyle = `rgba(255,255,255,${alpha})`;
@@ -102,7 +103,6 @@
         ctx.arc(b.trail[i].x, b.trail[i].y, 4, 0, Math.PI*2);
         ctx.fill();
       }
-      // 绘制主弹
       const gradient = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 6);
       gradient.addColorStop(0, 'white');
       gradient.addColorStop(1, 'rgba(255,255,255,0)');
@@ -114,8 +114,11 @@
   }
 
   function updateBullets(){
+    const elapsed = (Date.now()-startTime)/1000;
+    const speedMultiplier = 1 + Math.floor(elapsed / 30) * 0.2;
+
     bullets.forEach(b=>{
-      b.y += b.speed;
+      b.y += b.speed * speedMultiplier;
       b.trail.push({x: b.x, y: b.y});
       if(b.trail.length > 10) b.trail.shift();
     });
@@ -140,12 +143,15 @@
 
   function gameLoop(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // 平滑移动
+    player.x += (targetX - player.x) * 0.2;
+
     drawPlayer();
     drawBullets();
     updateBullets();
     checkCollision();
 
-    // 子弹密度随时间增加
     const elapsed = (Date.now()-startTime)/1000;
     scoreDiv.textContent = `存活时间: ${Math.floor(elapsed)} 秒`;
     const spawnProb = Math.min(0.02 + elapsed*0.002, 0.1);
@@ -210,9 +216,9 @@
 
       if(xs.length >= 1){
         const avgX = xs.reduce((a,b)=>a+b,0)/xs.length;
-        player.x = avgX;
-        if(player.x < 15) player.x = 15;
-        if(player.x > canvas.width - 15) player.x = canvas.width - 15;
+        targetX = avgX;
+        if(targetX < 15) targetX = 15;
+        if(targetX > canvas.width - 15) targetX = canvas.width - 15;
       }
     }
   });
