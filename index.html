@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>手势小人躲子弹</title>
+  <style>
+    html, body { margin:0; padding:0; overflow:hidden; background:#000; }
+    canvas { display:block; }
+    #videoWrapper {
+      position: fixed; left: 10px; bottom: 10px; width: 200px; height: 150px;
+      border: 2px solid #fff; overflow: hidden;
+    }
+    #videoWrapper canvas, #videoWrapper video {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    }
+    #message {
+      position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+      color:yellow; font-size:48px; background:rgba(0,0,0,0.7);
+      padding:20px; border-radius:10px; display:none;
+    }
+    #score {
+      position: fixed; top:10px; left:50%; transform:translateX(-50%);
+      color:white; font-size:24px; background:rgba(0,0,0,0.5);
+      padding:4px 12px; border-radius:6px;
+    }
+  </style>
+</head>
+<body>
+<div id="videoWrapper">
+  <video id="video" autoplay muted playsinline></video>
+  <canvas id="videoCanvas"></canvas>
+</div>
+<div id="message"></div>
+<div id="score">存活时间: 0 秒</div>
+<canvas id="canvas"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const videoCanvas = document.getElementById('videoCanvas');
+  const vctx = videoCanvas.getContext('2d');
+
+  const msgDiv = document.getElementById('message');
+  const scoreDiv = document.getElementById('score');
+  const videoEl = document.getElementById('video');
+
+  const player = { x: canvas.width/2, y: canvas.height-60, size:30 };
+  let bullets = [];
+  let startTime = Date.now();
+
+  function spawnBullet(){
+    bullets.push({
+      x: Math.random()*canvas.width,
+      y: 0,
+      speed: 4 + Math.random()*3,
+      trail: []
+    });
+  }
+
+  function resetGame(){
+    player.x = canvas.width/2;
+    bullets = [];
+    startTime = Date.now();
+    msgDiv.style.display = 'none';
+  }
+
+  function drawPlayer(){
+    ctx.fillStyle = 'lime';
+    ctx.beginPath();
+    ctx.arc(player.x, player.y - player.size, 12, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillRect(player.x - 5, player.y - player.size, 10, player.size);
+    ctx.beginPath();
+    ctx.moveTo(player.x - 5, player.y - player.size/2);
+    ctx.lineTo(player.x - 20, player.y);
+    ctx.moveTo(player.x + 5, player.y - player.size/2);
+    ctx.lineTo(player.x + 20, player.y);
+    ctx.strokeStyle = 'lime';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(player.x - 5, player.y);
+    ctx.lineTo(player.x - 10, player.y + 20);
+    ctx.moveTo(player.x + 5, player.y);
+    ctx.lineTo(player.x + 10, player.y + 20);
+    ctx.stroke();
+  }
+
+  function drawBullets(){
+    bullets.forEach(b=>{
+      // 绘制拖尾
+      for(let i=0; i<b.trail.length; i++){
+        const alpha = (i+1)/b.trail.length * 0.5;
+        ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(b.trail[i].x, b.trail[i].y, 4, 0, Math.PI*2);
+        ctx.fill();
+      }
+      // 绘制主弹
+      const gradient = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, 6);
+      gradient.addColorStop(0, 'white');
+      gradient.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, 6, 0, Math.PI*2);
+      ctx.fill();
+    });
+  }
+
+  function updateBullets(){
+    bullets.forEach(b=>{
+      b.y += b.speed;
+      b.trail.push({x: b.x, y: b.y});
+      if(b.trail.length > 10) b.trail.shift();
+    });
+    bullets = bullets.filter(b=>b.y < canvas.height + 10);
+  }
+
+  function checkCollision(){
+    for (const b of bullets){
+      if(
+              b.x > player.x - 15 &&
+              b.x < player.x + 15 &&
+              b.y > player.y - player.size - 12 &&
+              b.y < player.y + 20
+      ){
+        msgDiv.textContent = `被击中！存活 ${Math.floor((Date.now()-startTime)/1000)} 秒`;
+        msgDiv.style.display = 'block';
+        setTimeout(resetGame, 2000);
+        break;
+      }
+    }
+  }
+
+  function gameLoop(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawPlayer();
+    drawBullets();
+    updateBullets();
+    checkCollision();
+
+    // 子弹密度随时间增加
+    const elapsed = (Date.now()-startTime)/1000;
+    scoreDiv.textContent = `存活时间: ${Math.floor(elapsed)} 秒`;
+    const spawnProb = Math.min(0.02 + elapsed*0.002, 0.1);
+    if(Math.random() < spawnProb) spawnBullet();
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+  hands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.7
+  });
+
+  const camera = new Camera(videoEl, {
+    onFrame: async ()=> await hands.send({image: videoEl}),
+    width: 640, height: 480
+  });
+  camera.start();
+
+  hands.onResults(results => {
+    vctx.clearRect(0,0,videoCanvas.width,videoCanvas.height);
+    vctx.drawImage(videoEl, 0, 0, videoCanvas.width, videoCanvas.height);
+
+    if(results.multiHandLandmarks){
+      let xs = [];
+      results.multiHandLandmarks.forEach(lm => {
+        const connections = [
+          [0,1],[1,2],[2,3],[3,4],
+          [0,5],[5,6],[6,7],[7,8],
+          [0,9],[9,10],[10,11],[11,12],
+          [0,13],[13,14],[14,15],[15,16],
+          [0,17],[17,18],[18,19],[19,20]
+        ];
+        vctx.strokeStyle = 'cyan';
+        vctx.lineWidth = 2;
+        connections.forEach(([a,b])=>{
+          const x1 = lm[a].x * videoCanvas.width;
+          const y1 = lm[a].y * videoCanvas.height;
+          const x2 = lm[b].x * videoCanvas.width;
+          const y2 = lm[b].y * videoCanvas.height;
+          vctx.beginPath();
+          vctx.moveTo(x1,y1);
+          vctx.lineTo(x2,y2);
+          vctx.stroke();
+        });
+        lm.forEach(p=>{
+          vctx.beginPath();
+          vctx.arc(p.x*videoCanvas.width,p.y*videoCanvas.height,3,0,Math.PI*2);
+          vctx.fillStyle = 'yellow';
+          vctx.fill();
+        });
+
+        const knuckle = lm[5];
+        const x = (1 - knuckle.x) * canvas.width;
+        xs.push(x);
+      });
+
+      if(xs.length >= 1){
+        const avgX = xs.reduce((a,b)=>a+b,0)/xs.length;
+        player.x = avgX;
+        if(player.x < 15) player.x = 15;
+        if(player.x > canvas.width - 15) player.x = canvas.width - 15;
+      }
+    }
+  });
+
+  resetGame();
+  gameLoop();
+</script>
+</body>
+</html>
